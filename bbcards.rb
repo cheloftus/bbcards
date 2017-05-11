@@ -34,6 +34,7 @@ PAPER_NAME   = "LETTER"
 PAPER_HEIGHT = (MM_PER_INCH*11.0).mm;
 PAPER_WIDTH  = (MM_PER_INCH*8.5).mm;
 
+CARD_PADDING = 25
 
 def get_card_geometry(card_width_inches=2.0, card_height_inches=2.0, rounded_corners=false, one_card_per_page=false)
 	card_geometry = Hash.new
@@ -106,11 +107,11 @@ def box(pdf, card_geometry, index, &blck)
 	column = index%card_geometry["cards_across"]
 	row = card_geometry["cards_high"] - index/card_geometry["cards_across"]
 
-	# Margin: 10pt
-	x = card_geometry["card_width"] * column + 10
-	y = card_geometry["card_height"] * row - 10
+	# Margin: CARD_PADDING
+	x = card_geometry["card_width"] * column + CARD_PADDING
+	y = card_geometry["card_height"] * row - CARD_PADDING
 
-	pdf.bounding_box([x,y], width: card_geometry["card_width"]-20, height: card_geometry["card_height"]-10, &blck)
+	pdf.bounding_box([x,y], width: card_geometry["card_width"]-(CARD_PADDING*2), height: card_geometry["card_height"]-(CARD_PADDING*2), &blck)
 end
 
 def draw_logos(pdf, card_geometry, icon)
@@ -128,18 +129,20 @@ end
 
 
 
-def render_card_page(pdf, card_geometry, icon, statements, is_black)
+def render_card_page(pdf, card_geometry, icon, statements, is_black, is_card_back)
 	
 	pdf.font "Helvetica", :style => :normal
-	pdf.font_size = 14
+	pdf.font_size = 13
 	pdf.line_width(0.5);
 
+	if (is_card_back)
+		pdf.font_size = 28
+	end
 	
 	if(is_black)
 		pdf.canvas do
 			pdf.rectangle(pdf.bounds.top_left,pdf.bounds.width, pdf.bounds.height)
 		end
-
 		pdf.fill_and_stroke(:fill_color=>"000000", :stroke_color=>"000000") do
 			pdf.canvas do
 				pdf.rectangle(pdf.bounds.top_left,pdf.bounds.width, pdf.bounds.height)
@@ -274,15 +277,15 @@ def render_card_page(pdf, card_geometry, icon, statements, is_black)
 			#by default cards should be bold
 			card_text = "<b>" + card_text + "</b>"
 
-
-
 			# Text
 			pdf.font "Helvetica", :style => :normal
 
-			if is_pick3
-				pdf.text_box card_text.to_s, :overflow => :shrink_to_fit, :height =>card_geometry["card_height"]-55, :inline_format => true
-			else
+			if is_card_back
 				pdf.text_box card_text.to_s, :overflow => :shrink_to_fit, :height =>card_geometry["card_height"]-35, :inline_format => true
+			elsif is_pick3
+				pdf.text_box card_text.to_s, :overflow => :shrink_to_fit, :height =>card_geometry["card_height"]-55, :width =>card_geometry["card_width"]-75, :inline_format => true
+			else
+				pdf.text_box card_text.to_s, :overflow => :shrink_to_fit, :height =>card_geometry["card_height"]-35, :width =>card_geometry["card_width"]-75, :inline_format => true
 			end
 	
 			pdf.font "Helvetica", :style => :bold
@@ -324,7 +327,9 @@ def render_card_page(pdf, card_geometry, icon, statements, is_black)
 			end
 		end
 	end
-	draw_logos(pdf, card_geometry, icon)
+	if icon
+		draw_logos(pdf, card_geometry, icon)
+	end
 	pdf.stroke_color "000000"
 	pdf.fill_color "000000"
 
@@ -433,21 +438,25 @@ def load_ttf_fonts(font_dir, font_families)
 end
 
 
-def render_cards(directory=".", white_file="white.txt", black_file="black.txt", icon_file="icon.png", output_file="cards.pdf", input_files_are_absolute=false, output_file_name_from_directory=true, recurse=true, card_geometry=get_card_geometry, white_string="", black_string="", output_to_stdout=false, title=nil )
+def render_cards(directory=".", white_file="white.txt", black_file="black.txt", icon_black_file="icon.png", icon_white_file="icon.png", output_file="cards.pdf", render_card_backs=false, card_back_text="", input_files_are_absolute=false, output_file_name_from_directory=true, recurse=true, card_geometry=get_card_geometry, white_string="", black_string="", output_to_stdout=false, title=nil )
 	
 	original_white_file = white_file
 	original_black_file = black_file
-	original_icon_file = icon_file
+	original_icon_black_file = icon_black_file
+	original_icon_white_file = icon_white_file
 	if not input_files_are_absolute
 		white_file = directory + File::Separator + white_file
 		black_file = directory + File::Separator + black_file
-		icon_file  = directory + File::Separator + icon_file
+		icon_black_file  = directory + File::Separator + icon_black_file
+		icon_white_file  = directory + File::Separator + icon_white_file
 	end
 
-	if not File.exist? icon_file
-		icon_file = "./default.png"
+	if not File.exist? icon_black_file
+		icon_black_file = "./default.png"
 	end
-
+	if not File.exist? icon_black_file
+		icon_white_file = "./default.png"
+	end
 
 	if not directory.nil?
 		if File.exist?(directory) and directory != "." and output_file_name_from_directory
@@ -493,14 +502,21 @@ def render_cards(directory=".", white_file="white.txt", black_file="black.txt", 
 			)
 		load_ttf_fonts("/usr/share/fonts/truetype/msttcorefonts", pdf.font_families)
 
-
+		if render_card_backs
+			render_card_page(pdf, card_geometry, nil, [card_back_text], false, true)
+			pdf.start_new_page
+		end
 		white_pages.each_with_index do |statements, page|
-			render_card_page(pdf, card_geometry, icon_file, statements, false)
+			render_card_page(pdf, card_geometry, icon_white_file, statements, false, false)
 			pdf.start_new_page unless page >= white_pages.length-1
 		end
 		pdf.start_new_page unless white_pages.length == 0 || black_pages.length == 0
+		if render_card_backs
+			render_card_page(pdf, card_geometry, nil, [card_back_text], true, true)
+			pdf.start_new_page
+		end
 		black_pages.each_with_index do |statements, page|
-			render_card_page(pdf, card_geometry, icon_file, statements, true)
+			render_card_page(pdf, card_geometry, icon_black_file, statements, true, false)
 			pdf.start_new_page unless page >= black_pages.length-1
 		end
 
@@ -517,7 +533,7 @@ def render_cards(directory=".", white_file="white.txt", black_file="black.txt", 
 		files_in_dir =Dir.glob(directory + File::Separator + "*")
 		files_in_dir.each do |subdir|
 			if File.directory? subdir
-				render_cards(subdir, original_white_file, original_black_file, original_icon_file, "irrelevant", false, true, true, card_geometry )
+				render_cards(subdir, original_white_file, original_black_file, original_icon_black_file, original_icon_white_file, "irrelevant", false, true, true, card_geometry )
 			end
 		end
 	end
@@ -646,6 +662,8 @@ else
 	arg_defs["--icon"]      = "icon"
 	arg_defs["-o"]          = "output"
 	arg_defs["-output"]     = "output"
+	arg_defs["-t"]          = "title"
+	arg_defs["--title"]      = "title"
 
 	flag_defs["-s"]            = "small"
 	flag_defs["--small"]       = "small"
@@ -664,15 +682,19 @@ else
 	if args.has_key? "large"
 		card_geometry = get_card_geometry(2.5,3.5, (not (args["rounded"]).nil?), (not (args["oneperpage"]).nil? ))
 	end
-	
+	titlecards = false
+	if args.has_key? "title"
+		titlecards = true
+	end
 	if args.has_key? "help" or args.length == 0 or ( (not args.has_key? "white") and (not args.has_key? "black") and (not args.has_key? "dir") )
 		print_help
 	elsif args.has_key? "dir"
-		render_cards args["dir"], "white.txt", "black.txt", "icon.png", "cards.pdf", false, true, true, card_geometry, "", "", false
+		render_cards args["dir"], "white.txt", "black.txt", "icon.black.png", "icon.white.png", "cards.pdf", titlecards, args["title"], false, true, true, card_geometry, "", "", false
 	else
-		render_cards nil, args["white"], args["black"], args["icon"], args["output"], true, false, false, card_geometry, "", "", false
+		render_cards nil, args["white"], args["black"], args["icon"], args["icon"], args["output"], titlecards, args["title"], true, false, false, card_geometry, "", "", false
 	end
 end
 exit
+
 
 
